@@ -194,6 +194,14 @@ h1,h2,h3{margin:0;text-wrap:balance}
 .bchip[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--fg)}
 .bchip:disabled{opacity:.4;cursor:default}
 
+/* магазин */
+.shoprow{cursor:default;gap:10px}
+.shopinfo{display:flex;align-items:center;gap:13px;flex:1;min-width:0;appearance:none;border:0;background:transparent;text-align:left;padding:0;cursor:pointer}
+.buybtn{flex:none;appearance:none;border:0;background:var(--accent);color:var(--accent-ink);font-size:13.5px;font-weight:600;padding:10px 15px;border-radius:13px;cursor:pointer}
+.buybtn:disabled{background:var(--surface-2);color:var(--muted);cursor:default}
+.priceinp{width:76px;flex:none;appearance:none;background:var(--surface-2);border:1px solid var(--line);border-radius:12px;color:var(--fg);font-family:var(--font-num);font-size:18px;font-weight:700;text-align:center;padding:8px 4px}
+.stepper .priceinp+button,.stepper button+.priceinp{margin:0}
+
 /* настройки */
 .fieldset{padding:4px 16px;margin-bottom:12px}
 .field{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;font-size:14.5px}

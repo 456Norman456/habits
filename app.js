@@ -3,7 +3,7 @@
 "use strict";
 
 var KEY = "ogonek.v1";
-var VERSION = "1.0";
+var VERSION = "1.1";
 
 /* ───────── даты: работаем с номерами дней (дни от 1970-01-01 по местному календарю) ───────── */
 var DOW = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
@@ -44,7 +44,7 @@ function defaults(){
   return {
     v: 1, name: "", theme: "dark",
     habits: [], log: {},
-    piggy: { goal: "", target: 0, perMark: 30, perSkip: 30, bar: 80, bonus: 300, since: null, bonusWeeks: {} },
+    shop: { items: [], purchases: [] },
     lastBackup: null, created: key(today())
   };
 }
@@ -52,8 +52,9 @@ function normalize(s){
   var d = defaults();
   if (!s || typeof s !== "object") return d;
   Object.keys(d).forEach(function(k){ if (s[k] === undefined) s[k] = d[k]; });
-  var p = s.piggy || {}; Object.keys(d.piggy).forEach(function(k){ if (p[k] === undefined) p[k] = d.piggy[k]; });
-  s.piggy = p;
+  delete s.piggy; // старая копилка (версия 1.0) больше не используется
+  if (!Array.isArray(s.shop.items)) s.shop.items = [];
+  if (!Array.isArray(s.shop.purchases)) s.shop.purchases = [];
   if (!Array.isArray(s.habits)) s.habits = [];
   if (!s.log || typeof s.log !== "object") s.log = {};
   s.habits.forEach(function(h){
@@ -200,37 +201,33 @@ function cardLabel(h, n){
 }
 function activeCount(){ return S.habits.filter(function(h){ return h.status === "active"; }).length; }
 
-/* ───────── статистика недель и копилка ───────── */
+/* ───────── статистика недель и баллы ─────────
+   +1 балл за каждое выполнение, −1 за каждый пропуск, покупки в магазине списывают баллы. */
 function stats(t){
-  var weeks = {}, since = S.piggy.since ? dn(S.piggy.since) : null, first = null;
+  var weeks = {}, first = null, earned = 0, missed = 0;
   S.habits.forEach(function(h){
     units(h, t).forEach(function(u){
       var w = wk(u.n);
-      var W = weeks[w] || (weeks[w] = { w: w, d: 0, m: 0, md: 0, mm: 0 });
-      if (u.d) W.d++; else W.m++;
-      if (since !== null && u.n >= since){ if (u.d) W.md++; else W.mm++; }
+      var W = weeks[w] || (weeks[w] = { w: w, d: 0, m: 0 });
+      if (u.d){ W.d++; earned++; } else { W.m++; missed++; }
       if (first === null || w < first) first = w;
     });
   });
-  var p = S.piggy, list = [], carry = 0, total = 0, cw = wk(t);
-  var startW = since !== null ? wk(since) : (first !== null ? first : cw);
-  for (var w = Math.min(startW, first === null ? cw : first); w <= cw; w += 7){
-    var W = weeks[w] || { w: w, d: 0, m: 0, md: 0, mm: 0 };
+  var list = [], cw = wk(t);
+  for (var w = first === null ? cw : first; w <= cw; w += 7){
+    var W = weeks[w] || { w: w, d: 0, m: 0 };
     W.pct = (W.d + W.m) ? Math.round(100 * W.d / (W.d + W.m)) : null;
-    W.inPiggy = since !== null && w >= wk(since);
-    W.bonusOn = !!(W.inPiggy && p.bonusWeeks[key(w)]);
-    W.sum = W.inPiggy ? (W.md * p.perMark - W.mm * p.perSkip + (W.bonusOn ? p.bonus : 0)) : 0;
+    W.pts = W.d - W.m;
     W.finished = w + 6 < t;
-    if (W.inPiggy){
-      total += W.sum;
-      var s = W.sum + carry;
-      W.carryIn = carry;
-      if (W.finished){ W.put = Math.max(0, s); carry = Math.min(0, s); W.carryOut = carry; }
-      else { W.put = null; W.running = s; }
-    }
     list.push(W);
   }
-  return { weeks: list, total: total, cur: list[list.length - 1] };
+  var spent = S.shop.purchases.reduce(function(a, p){ return a + p.price; }, 0);
+  return { weeks: list, cur: list[list.length - 1], earned: earned, missed: missed, spent: spent, balance: earned - missed - spent };
+}
+function pts(n){ return n + " " + plural(n, "балл", "балла", "баллов"); }
+function nextReward(balance){
+  var list = S.shop.items.filter(function(i){ return i.price > balance; }).sort(function(a, b){ return a.price - b.price; });
+  return list[0] || null;
 }
 
 /* ───────── действия ───────── */
@@ -260,7 +257,7 @@ function icon(name){
   var P = {
     today: '<circle cx="11" cy="11" r="7.4"/><path d="M11 7v4.3l2.8 1.8"/>',
     habits: '<path d="M4 6.2h12.5M4 11h12.5M4 15.8h12.5"/>',
-    piggy: '<path d="M3.6 12.4c0-3.5 3.3-6.3 7.4-6.3 4.1 0 7.4 2.8 7.4 6.3 0 3.5-3.3 6.3-7.4 6.3-1 0-2-.17-2.9-.48L4.4 19.4l.5-2.6a6 6 0 0 1-1.3-4.4Z"/><path d="M8.3 11.3h.01"/>',
+    shop: '<path d="M4.5 7.5h13l-1 11h-11l-1-11Z"/><path d="M8 9.5V6.5a3 3 0 0 1 6 0v3"/>',
     settings: '<path d="M11 14.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"/><path d="M11 3.2v1.6M11 17.2v1.6M4.5 11H2.9M19.1 11h-1.6M6.4 6.4 5.3 5.3M16.7 16.7l-1.1-1.1M6.4 15.6l-1.1 1.1M16.7 5.3l-1.1 1.1"/>',
     back: '<path d="M13 5.5 7.5 11l5.5 5.5"/>'
   };
@@ -281,16 +278,20 @@ function ring(doneN, total){
     'stroke-dasharray="' + c.toFixed(1) + '" stroke-dashoffset="' + (c * (1 - p)).toFixed(1) + '"/></svg>' +
     '<span class="rt"><b>' + doneN + '/' + total + '</b><i>за день</i></span></div>';
 }
-function piggyStrip(st){
-  var p = S.piggy;
-  if (!p.goal || !p.target){
-    return '<button class="strip card" data-act="tab" data-v="piggy"><span class="sr"><b>Копилка</b><span>задать цель ›</span></span>' +
-      '<small>общая цель на двоих: каждая отметка приближает её</small></button>';
+function pointsStrip(st){
+  var b = st.balance, nx = nextReward(b);
+  if (!S.shop.items.length){
+    return '<button class="strip card" data-act="tab" data-v="shop"><span class="sr"><b>🪙 ' + pts(b) + '</b><span>в магазин ›</span></span>' +
+      '<small>добавь награды в магазин — и копи на них баллы</small></button>';
   }
-  var pct = Math.max(0, Math.min(100, Math.round(st.total / p.target * 100)));
-  return '<button class="strip card" data-act="tab" data-v="piggy"><span class="sr"><b>' + esc(p.goal) + '</b>' +
-    '<span>' + money(st.total) + ' / ' + money(p.target) + ' ₽</span></span>' +
-    '<span class="bar"><i style="width:' + pct + '%"></i></span><small>моя часть · ' + pct + '% цели</small></button>';
+  if (!nx){
+    return '<button class="strip card" data-act="tab" data-v="shop"><span class="sr"><b>🪙 ' + pts(b) + '</b><span>в магазин ›</span></span>' +
+      '<span class="bar"><i style="width:100%"></i></span><small>хватает на любую награду в магазине</small></button>';
+  }
+  var pct = Math.max(0, Math.min(100, Math.round(b / nx.price * 100)));
+  return '<button class="strip card" data-act="tab" data-v="shop"><span class="sr"><b>🪙 ' + pts(b) + '</b>' +
+    '<span>' + esc(nx.em) + ' ' + esc(nx.name) + ' · ' + nx.price + '</span></span>' +
+    '<span class="bar"><i style="width:' + pct + '%"></i></span><small>до награды ещё ' + pts(nx.price - b) + '</small></button>';
 }
 function vToday(){
   var t = today(), n = t + U.dayOff, list = dueList(n), st = stats(t);
@@ -302,7 +303,7 @@ function vToday(){
   if (activeCount() === 0){
     h += '<div class="card empty"><div class="big">🔥</div><h3>Пока ни одной привычки</h3>' +
       '<p>Начни с одной — маленькой и понятной. Нажми «+» внизу справа.</p></div>';
-    return h + piggyStrip(st);
+    return h + pointsStrip(st);
   }
 
   h += '<div class="card sum">' + ring(doneN, list.length) + '<div class="sum-txt"><h3>' + doneN + ' из ' + list.length + '</h3><p>' +
@@ -311,7 +312,7 @@ function vToday(){
       : doneN === 0 ? "Ещё ничего не отмечено — и это нормально."
       : "Осталось " + (list.length - doneN) + " " + plural(list.length - doneN, "привычка", "привычки", "привычек") + ".") +
     '</p></div></div>';
-  h += piggyStrip(st);
+  h += pointsStrip(st);
   h += '<div class="dayswitch" role="group" aria-label="День">' +
     '<button data-act="day" data-v="-1" aria-pressed="' + (U.dayOff === -1) + '">‹ Вчера</button>' +
     '<button data-act="day" data-v="0" aria-pressed="' + (U.dayOff === 0) + '">Сегодня ›</button></div>';
@@ -321,7 +322,7 @@ function vToday(){
     if (U.celebrate) for (var i = 0; i < 11; i++)
       sparks += '<span class="spark" style="left:' + (8 + i * 8) + '%;bottom:14px;--dx:' + ((i % 2 ? 1 : -1) * (8 + i * 2)) + 'px;animation-delay:' + (i * 55) + 'ms"></span>';
     h += '<div class="alldone' + (U.celebrate ? " go" : "") + '">' + sparks + '<h3>' + (U.dayOff === 0 ? "Всё на сегодня сделано" : "Вчерашний день закрыт") + '</h3>' +
-      '<p>' + (S.piggy.goal ? "+" + money(list.length * S.piggy.perMark) + " ₽ в копилку. " : "") +
+      '<p>+' + pts(list.length) + ' за день. ' +
       (U.dayOff === 0 ? "Вчерашний день тоже ещё можно закрыть." : "Отмечать задним числом — нормально.") + '</p></div>';
   }
 
@@ -416,68 +417,43 @@ function vDetail(){
     '</div><p class="hintline">Отметить задним числом — нормально. Приложение не считает это нарушением.</p>';
 }
 
-function vPiggy(){
-  var t = today(), p = S.piggy;
-  var h = '<div class="greet"><h1>Копилка</h1><p>Деньги откладываем в конверт. Приложение только считает.</p></div>';
-  if (!p.goal || !p.target){
-    return h + '<div class="card goalcard"><div class="gl">наша цель</div><h1>Что копим?</h1>' +
-      '<p class="rules" style="margin-top:10px">Например: «Поездка в Питер» — 20 000 ₽. Одна и та же цель у обоих.</p>' +
-      '<div class="fieldset" style="padding:0;margin:14px 0 0;text-align:left">' +
-      '<div class="field"><label for="g-goal">Цель</label><input id="g-goal" type="text" placeholder="Поездка в Питер"></div>' +
-      '<div class="field"><label for="g-target">Сумма, ₽</label><input id="g-target" type="number" inputmode="numeric" placeholder="20000"></div></div>' +
-      '<button class="btn primary" data-act="goalset" style="margin-top:12px">Поехали</button></div>' +
-      '<p class="hintline">Отметка +' + p.perMark + ' ₽, пропуск −' + p.perSkip + ' ₽, бонус +' + p.bonus + ' ₽, если оба взяли планку ' + p.bar + '%. Цифры меняются в настройках.</p>';
-  }
-  var st = stats(t), W = st.cur, pct = Math.max(0, Math.min(100, Math.round(st.total / p.target * 100)));
-  var reached = st.total >= p.target;
-  h += '<div class="card goalcard"><div class="gl">наша цель</div><h1>' + esc(p.goal) + '</h1>' +
-    '<div class="amt"><b>' + money(st.total) + '</b><span>из ' + money(p.target) + ' ₽ · моя часть</span></div>' +
-    '<div class="bar lg"><i style="width:' + pct + '%"></i></div>' +
-    '<div class="rules">отметка +' + p.perMark + ' ₽ · пропуск −' + p.perSkip + ' ₽</div>' +
-    (reached ? '<div class="note warm">🎉 Моя часть набрана. Сложитесь — и идите тратить. Потом можно начать новую цель.</div>' +
-      '<button class="btn center" data-act="goalnew" style="margin-top:10px">Новая цель</button>' : '') + '</div>';
+function vShop(){
+  var t = today(), st = stats(t), b = st.balance, W = st.cur;
+  var h = '<div class="greet"><h1>Магазин</h1><p>Выполнил привычку — +1 балл, пропустил — −1. Баллы тратишь на награды.</p></div>';
+  h += '<div class="card goalcard"><div class="gl">мой баланс</div>' +
+    '<div class="amt"><b>' + b + '</b><span>' + plural(b, "балл", "балла", "баллов") + '</span></div>' +
+    '<div class="rules">заработано ' + st.earned + ' · пропусков ' + st.missed + ' · потрачено ' + st.spent + '</div>' +
+    '<div class="wk-rows" style="margin-top:16px;text-align:left">' +
+    '<div class="wk-row"><span>Эта неделя · ' + weekLabel(W.w) + '</span><b>' + (W.pts > 0 ? "+" : "") + W.pts + '</b></div></div></div>';
 
-  var canBonus = W.pct !== null && W.pct >= p.bar;
-  h += '<div class="card week"><h3>Эта неделя · ' + weekLabel(W.w) + '</h3><div class="wk-rows">' +
-    '<div class="wk-row"><span>Мой процент выполнения</span><b>' + (W.pct === null ? "—" : W.pct + "%") + '</b></div>' +
-    '<div class="wk-row"><span>Мой вклад за неделю</span><b>' + signed(W.sum) + ' ₽</b></div>' +
-    (W.carryIn < 0 ? '<div class="wk-row"><span>Перенос с прошлой недели</span><b>' + money(W.carryIn) + ' ₽</b></div>' : '') +
-    '</div><div class="team"><div class="team-head"><span>Командная планка</span><b>' + p.bar + '%</b></div>' +
-    '<div class="mebar"><span class="bar" style="margin:0;height:9px"><i style="width:' + (W.pct || 0) + '%"></i></span><u style="left:' + p.bar + '%"></u></div>' +
-    '<div class="note' + (canBonus ? " warm" : "") + '">' +
-    (W.pct === null ? "Пока нечего считать: процент появится после первых отметок."
-      : canBonus ? "<b>Моя планка взята.</b> Если у второго тоже — после сверки нажми кнопку, и каждому +" + p.bonus + " ₽."
-      : "До планки не хватает " + (p.bar - W.pct) + " п.п. Подтянусь — и бонус будет у обоих.") + '</div>' +
-    '<button class="btn center' + (W.bonusOn ? "" : (canBonus ? " primary" : "")) + '" data-act="bonus" data-v="' + W.w + '" style="margin-top:12px"' + (canBonus || W.bonusOn ? "" : " disabled") + '>' +
-    (W.bonusOn ? "Бонус учтён ✓ · отменить" : "Оба взяли планку · +" + p.bonus + " ₽") + '</button></div></div>';
-
-  var fin = st.weeks.filter(function(x){ return x.inPiggy && x.finished; });
-  var last = fin[fin.length - 1];
-  if (last){
-    h += '<div class="card week"><h3>В конверт</h3><div class="wk-rows">' +
-      '<div class="wk-row"><span>За ' + weekLabel(last.w) + '</span><b>' + signed(last.put) + ' ₽</b></div></div>' +
-      (last.carryOut < 0 ? '<div class="note">Неделя в минусе: ' + money(last.carryOut) + ' ₽ переносится на эту неделю, из конверта ничего не достаём.</div>' : '') +
-      '</div>';
+  h += '<div class="seclabel"><h2>Награды</h2><span>' + S.shop.items.length + '</span></div>';
+  if (!S.shop.items.length){
+    h += '<div class="card empty" style="padding:34px 22px 30px"><div class="big">🎁</div><h3>Пока пусто</h3>' +
+      '<p>Придумай, чем себя порадовать: «Киндер — 5 баллов», «Кино — 30 баллов».</p></div>';
+  } else {
+    h += '<div class="divided">' + S.shop.items.slice().sort(function(a, c){ return a.price - c.price; }).map(function(i){
+      var can = b >= i.price;
+      return '<div class="hrow shoprow"><button class="shopinfo" data-act="editreward" data-v="' + i.id + '">' +
+        '<span class="em">' + esc(i.em) + '</span><span class="tx"><b>' + esc(i.name) + '</b><span>' + pts(i.price) +
+        (can ? '' : ' · не хватает ' + (i.price - b)) + '</span></span></button>' +
+        '<button class="buybtn" data-act="buy" data-v="' + i.id + '"' + (can ? '' : ' disabled') + '>Купить</button></div>';
+    }).join("") + '</div>';
   }
-  if (fin.length){
-    h += '<div class="seclabel"><h2>История недель</h2><span>' + fin.length + '</span></div><div class="card hist">' +
-      fin.slice(-12).reverse().map(function(x){
-        var ok = x.pct !== null && x.pct >= p.bar;
-        return '<div class="hist-row"><div class="hl"><div>' + weekLabel(x.w) + '</div><span>мой процент ' + (x.pct === null ? "—" : x.pct + "%") +
-          ' · в конверт ' + money(x.put) + ' ₽</span></div><div class="hr"><b data-neg="' + (x.sum < 0 ? 1 : 0) + '">' + signed(x.sum) + ' ₽</b>' +
-          '<button class="bchip" data-act="bonus" data-v="' + x.w + '" aria-pressed="' + x.bonusOn + '"' + (ok || x.bonusOn ? "" : " disabled") + '>' +
-          (x.bonusOn ? "бонус ✓" : "бонус") + '</button></div></div>';
+  h += '<button class="btn center" data-act="addreward" style="margin-top:12px">+ Добавить награду</button>';
+
+  var P = S.shop.purchases;
+  if (P.length){
+    h += '<div class="seclabel"><h2>Покупки</h2><span>' + P.length + '</span></div><div class="card hist">' +
+      P.slice(-15).reverse().map(function(p){
+        return '<div class="hist-row"><div class="hl"><div>' + esc(p.em) + ' ' + esc(p.name) + '</div><span>' + dateLong(dn(p.at)) + '</span></div>' +
+          '<div class="hr"><b data-neg="1">−' + p.price + '</b><button class="bchip" data-act="unbuy" data-v="' + p.id + '">отменить</button></div></div>';
       }).join("") + '</div>';
   }
-  h += '<p class="hintline">Это общий конверт, а не счёт по головам. Пропуск отодвигает цель для обоих. Забыли нажать бонус в воскресенье — отметьте его в истории.</p>';
+  h += '<p class="hintline">Тап по награде — изменить или удалить. Отметки задним числом тоже приносят баллы, а снятая отметка их забирает.</p>';
   return h;
 }
 
 function vSettings(){
-  var p = S.piggy;
-  function num(id, label, val, act){
-    return '<div class="field"><label for="' + id + '">' + label + '</label><input id="' + id + '" type="number" inputmode="numeric" value="' + val + '" data-act="' + act + '"></div>';
-  }
   var h = '<div class="greet"><h1>Настройки</h1><p>Данные хранятся только на этом телефоне</p></div>';
   if (!storageOk) h += '<div class="warnbox">⚠️ Браузер не даёт сохранять данные (приватный режим?). Отметки пропадут после закрытия страницы.</div>';
   h += '<div class="grouptitle">Я</div><div class="card fieldset">' +
@@ -486,13 +462,6 @@ function vSettings(){
     '<button data-act="theme" data-v="system" aria-pressed="' + (S.theme === "system") + '">Как в системе</button>' +
     '<button data-act="theme" data-v="dark" aria-pressed="' + (S.theme === "dark") + '">Тёмная</button>' +
     '<button data-act="theme" data-v="light" aria-pressed="' + (S.theme === "light") + '">Светлая</button></div>';
-  h += '<div class="grouptitle">Копилка</div><div class="card fieldset">' +
-    '<div class="field"><label for="s-goal">Цель</label><input id="s-goal" type="text" value="' + esc(p.goal) + '" data-act="goal" maxlength="40"></div>' +
-    num("s-target", "Сумма цели, ₽", p.target, "target") +
-    num("s-mark", "За отметку, ₽", p.perMark, "perMark") +
-    num("s-skip", "За пропуск, ₽", p.perSkip, "perSkip") +
-    num("s-bar", "Командная планка, %", p.bar, "bar") +
-    num("s-bonus", "Бонус за планку, ₽", p.bonus, "bonus") + '</div>';
   var canShare = !!(navigator.canShare && window.File);
   h += '<div class="grouptitle">Данные</div><div class="btnrow">' +
     '<button class="btn" data-act="report">Отчёт для Claude<span>он же резервная копия</span></button>' +
@@ -541,6 +510,28 @@ function vSheet(){
   return h;
 }
 
+var REWARD_EMOJIS = ["🍫","🍦","🍰","🍕","🍿","☕","🎬","🎮","📚","🛍️","💆","🌹","🎧","🛁","😴","🎁"];
+function vRewardSheet(){
+  var dr = U.draft;
+  var still = U.sheetShown ? " still" : "";
+  U.sheetShown = true;
+  return '<div class="scrim' + still + '" data-act="closesheet"></div><div class="sheet' + still + '" role="dialog" aria-label="Награда">' +
+    '<div class="handle"></div><h2>' + (dr.editing ? "Изменить награду" : "Новая награда") + '</h2>' +
+    '<p class="sub">Чем порадуешь себя, когда накопишь баллы?</p>' +
+    '<div class="emoji-pick"><input class="cur" id="r-em" type="text" value="' + esc(dr.em) + '" maxlength="8" aria-label="Эмодзи (можно свой)" data-act="draftem">' +
+    '<input class="name" type="text" id="r-name" placeholder="Например, Киндер" value="' + esc(dr.name) + '" maxlength="40" data-act="draftname"></div>' +
+    '<div class="emoji-row">' + REWARD_EMOJIS.map(function(e){ return '<button data-act="em" data-v="' + e + '" aria-pressed="' + (dr.em === e) + '">' + e + '</button>'; }).join("") + '</div>' +
+    '<p class="lbl">Цена в баллах</p>' +
+    '<div class="stepper"><button data-act="price" data-v="-5" aria-label="Минус 5">−5</button><button data-act="price" data-v="-1" aria-label="Меньше">−</button>' +
+    '<input class="priceinp" id="r-price" type="number" inputmode="numeric" value="' + dr.price + '" data-act="draftprice" aria-label="Цена">' +
+    '<button data-act="price" data-v="1" aria-label="Больше">+</button><button data-act="price" data-v="5" aria-label="Плюс 5">+5</button></div>' +
+    '<button class="btn primary" data-act="savereward">' + (dr.editing ? "Сохранить" : "Добавить в магазин") + '</button>' +
+    (dr.editing ? '<button class="btn danger center" data-act="delreward" style="margin-top:9px">Удалить награду</button>' : '') +
+    '<button class="btn quiet center" data-act="closesheet" style="margin-top:9px">Отмена</button></div>';
+}
+function rById(id){ for (var i = 0; i < S.shop.items.length; i++) if (S.shop.items[i].id === id) return S.shop.items[i]; return null; }
+function uid(p){ return p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
 /* ───────── сборка ───────── */
 function applyTheme(){
   document.documentElement.setAttribute("data-theme", S.theme || "dark");
@@ -556,14 +547,16 @@ function render(){
     app.className = "app bare"; app.innerHTML = vOnboarding(); ov.innerHTML = toastHTML(); return;
   }
   app.className = "app";
-  html = U.screen === "habits" ? vHabits() : U.screen === "detail" ? vDetail() : U.screen === "piggy" ? vPiggy() : U.screen === "settings" ? vSettings() : vToday();
+  html = U.screen === "habits" ? vHabits() : U.screen === "detail" ? vDetail() : U.screen === "shop" ? vShop() : U.screen === "settings" ? vSettings() : vToday();
   app.innerHTML = html;
-  var tabs = [["today", "Сегодня"], ["habits", "Привычки"], ["piggy", "Копилка"], ["settings", "Настройки"]];
+  var tabs = [["today", "Сегодня"], ["habits", "Привычки"], ["shop", "Магазин"], ["settings", "Настройки"]];
   var o = '<nav class="nav"><div class="nav-in">' + tabs.map(function(t){
     return '<button data-act="tab" data-v="' + t[0] + '"' + (U.tab === t[0] ? ' aria-current="page"' : '') + '>' + icon(t[0]) + '<span>' + t[1] + '</span></button>';
   }).join("") + '</div></nav>';
   if (U.screen === "today" || U.screen === "habits") o += '<button class="fab" data-act="add" aria-label="Добавить привычку">+</button>';
-  if (U.sheet) o += vSheet(); else U.sheetShown = false;
+  if (U.sheet === "habit") o += vSheet();
+  else if (U.sheet === "reward") o += vRewardSheet();
+  else U.sheetShown = false;
   o += toastHTML();
   var sh = ov.querySelector(".sheet"), shTop = sh ? sh.scrollTop : 0;
   ov.innerHTML = o;
@@ -582,20 +575,18 @@ function go(screen){ U.screen = screen; U.tab = screen === "detail" ? "habits" :
 
 /* ───────── отчёт / резервная копия ───────── */
 function buildReport(){
-  var t = today(), st = stats(t), p = S.piggy;
+  var t = today(), st = stats(t);
   return {
     "что_это": "Отчёт трекера привычек «Огонёк». Сверху — сводка для Claude, в поле data — полная резервная копия (её можно импортировать обратно). " +
-      "Процент недели = отметки / (отметки + пропуски). Пропуск засчитывается только когда период закончился (день, интервал или неделя). Отметки задним числом разрешены.",
-    "формат": "ogonek-report-1", "версия_приложения": VERSION,
+      "Процент недели = отметки / (отметки + пропуски). Пропуск засчитывается только когда период закончился (день, интервал или неделя). Отметки задним числом разрешены. " +
+      "Баллы: +1 за выполнение, −1 за пропуск; баллы тратятся на награды в магазине.",
+    "формат": "ogonek-report-2", "версия_приложения": VERSION,
     "имя": S.name, "выгружено": new Date().toISOString(), "сегодня": key(t),
-    "копилка": p.goal ? {
-      "цель": p.goal, "сумма_цели": p.target, "моя_часть": st.total,
-      "правила": { "за_отметку": p.perMark, "за_пропуск": p.perSkip, "планка_процент": p.bar, "бонус": p.bonus },
-      "начата": p.since
-    } : null,
+    "баллы": { "баланс": st.balance, "заработано": st.earned, "пропусков": st.missed, "потрачено": st.spent },
+    "магазин": S.shop.items.map(function(i){ return { "награда": i.em + " " + i.name, "цена": i.price }; }),
+    "покупки": S.shop.purchases.map(function(p){ return { "дата": p.at, "награда": p.em + " " + p.name, "цена": p.price }; }),
     "недели": st.weeks.map(function(W){
-      return { "неделя": key(W.w) + " — " + key(W.w + 6), "закончилась": W.finished, "процент": W.pct, "отметок": W.d, "пропусков": W.m,
-        "рублей": W.inPiggy ? W.sum : null, "бонус": W.bonusOn, "в_конверт": W.inPiggy ? W.put : null };
+      return { "неделя": key(W.w) + " — " + key(W.w + 6), "закончилась": W.finished, "процент": W.pct, "отметок": W.d, "пропусков": W.m, "баллов": W.pts };
     }),
     "привычки": S.habits.map(function(h){
       var u = units(h, t), d = u.filter(function(x){ return x.d; }).length, s = streak(h, t);
@@ -730,18 +721,49 @@ document.addEventListener("click", function(ev){
       if (!confirm("Удалить «" + x.name + "» вместе со всей историей? Это не отменить.")) return;
       S.habits.splice(S.habits.indexOf(x), 1); delete S.log[x.id]; save(); go("habits"); toast("Удалено");
       break;
-    case "goalset": {
-      var g = document.getElementById("g-goal").value.trim(), tg = parseInt(document.getElementById("g-target").value, 10);
-      if (!g || !(tg > 0)){ toast("Впиши цель и сумму"); return; }
-      S.piggy.goal = g; S.piggy.target = tg; S.piggy.since = key(t); S.piggy.bonusWeeks = {}; save(); render(); break;
+    case "addreward":
+      U.draft = { em: "🍫", name: "", price: 5, editing: null }; U.sheet = "reward"; render();
+      setTimeout(function(){ var i = document.getElementById("r-name"); if (i) i.focus(); }, 320);
+      break;
+    case "editreward":
+      x = rById(v); if (!x) return;
+      U.draft = { em: x.em, name: x.name, price: x.price, editing: x.id }; U.sheet = "reward"; render(); break;
+    case "price": {
+      var inpP = document.getElementById("r-price"), cur = parseInt(inpP && inpP.value, 10);
+      if (!isNaN(cur)) U.draft.price = cur;
+      U.draft.price = Math.max(1, Math.min(9999, (U.draft.price || 0) + parseInt(v, 10))); render(); break;
     }
-    case "goalnew":
-      if (!confirm("Начать новую цель? Счёт копилки начнётся с сегодняшнего дня, история привычек останется.")) return;
-      S.piggy.goal = ""; S.piggy.target = 0; S.piggy.since = null; S.piggy.bonusWeeks = {}; save(); render(); break;
-    case "bonus": {
-      var bk = key(parseInt(v, 10));
-      if (S.piggy.bonusWeeks[bk]) delete S.piggy.bonusWeeks[bk]; else { S.piggy.bonusWeeks[bk] = 1; vibrate([15, 60, 25]); }
-      save(); render(); break;
+    case "savereward": {
+      var rd = U.draft, rn = rd.name.trim(), rp = parseInt(rd.price, 10);
+      if (!rn){ toast("Дай награде название"); return; }
+      if (!(rp >= 1)){ toast("Цена — хотя бы 1 балл"); return; }
+      var rem = (rd.em || "").trim() || "🎁";
+      if (rd.editing){ x = rById(rd.editing); x.em = rem; x.name = rn; x.price = rp; }
+      else S.shop.items.push({ id: uid("r"), em: rem, name: rn, price: rp });
+      save(); U.sheet = null; U.draft = null; render(); toast(rd.editing ? "Сохранено" : "Награда в магазине");
+      break;
+    }
+    case "delreward":
+      x = rById(U.draft.editing); if (!x) return;
+      if (!confirm("Удалить награду «" + x.name + "»? Прошлые покупки останутся в истории.")) return;
+      S.shop.items.splice(S.shop.items.indexOf(x), 1); save(); U.sheet = null; U.draft = null; render(); toast("Удалено");
+      break;
+    case "buy": {
+      x = rById(v); if (!x) return;
+      var bal = stats(t).balance;
+      if (bal < x.price){ toast("Не хватает " + pts(x.price - bal)); return; }
+      if (!confirm("Купить «" + x.name + "» за " + pts(x.price) + "?")) return;
+      S.shop.purchases.push({ id: uid("p"), itemId: x.id, em: x.em, name: x.name, price: x.price, at: key(t) });
+      save(); vibrate([15, 60, 25]); render(); toast("Куплено: " + x.em + " " + x.name + ". Осталось " + pts(bal - x.price));
+      break;
+    }
+    case "unbuy": {
+      var pi = -1; S.shop.purchases.forEach(function(p, i){ if (p.id === v) pi = i; });
+      if (pi < 0) return;
+      var pp = S.shop.purchases[pi];
+      if (!confirm("Отменить покупку «" + pp.name + "»? Баллы (" + pp.price + ") вернутся.")) return;
+      S.shop.purchases.splice(pi, 1); save(); render(); toast("Покупка отменена, баллы вернулись");
+      break;
     }
     case "theme": S.theme = v; save(); render(); break;
     case "start": {
@@ -759,14 +781,7 @@ document.addEventListener("input", function(ev){
   if (a === "draftname"){ U.draft.name = el.value; return; }
   if (a === "draftem"){ U.draft.em = el.value; return; }
   if (a === "name"){ if (el.value.trim()){ S.name = el.value.trim(); save(); } return; }
-  if (a === "goal"){ S.piggy.goal = el.value.trim(); save(); return; }
-  if (["target", "perMark", "perSkip", "bar", "bonus"].indexOf(a) >= 0){
-    var val = parseInt(el.value, 10); if (isNaN(val) || val < 0) return;
-    if (a === "bar") val = Math.min(100, val);
-    S.piggy[a] = val;
-    if (a === "target" && val > 0 && S.piggy.goal && !S.piggy.since) S.piggy.since = key(today());
-    save();
-  }
+  if (a === "draftprice"){ U.draft.price = parseInt(el.value, 10) || 0; return; }
 });
 document.addEventListener("keydown", function(ev){
   if (ev.key === "Enter" && ev.target.id === "onb-name"){ ev.preventDefault(); document.querySelector('[data-act="start"]').click(); }
