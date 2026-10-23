@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Огонёк</title>
+<meta name="description" content="Трекер привычек">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#08080a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Огонёк">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Manrope:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="style.css?v=1">
+<script>
+  // тема до отрисовки, чтобы не мигало
+  try{var s=JSON.parse(localStorage.getItem("ogonek.v1")||"{}");if(s.theme)document.documentElement.setAttribute("data-theme",s.theme);}catch(e){}
+</script>
+</head>
+<body>
+<main class="app" id="app"></main>
+<div id="overlay"></div>
+<input type="file" id="importFile" accept=".json,application/json" hidden>
+<script src="app.js?v=1"></script>
+</body>
+</html>
